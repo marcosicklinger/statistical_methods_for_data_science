@@ -1,0 +1,503 @@
+---
+title: "Laboratory 4"
+author: "Di Credico G, Egidi L, Torelli N"
+date: "Fall 2020"
+output:
+  html_document:
+    toc: yes
+  beamer_presentation:
+    highlight: tango
+  include: null
+  ioslides_presentation:
+    highlight: tango
+  pdf_document:
+    highlight: tango
+    keep_tex: yes
+    toc: yes
+  slide_level: 2
+  slidy_presentation:
+    fig.height: 3
+    fig.width: 4
+    highlight: tango
+header-includes:
+- \usepackage{color}
+- \usepackage{bm}
+- \definecolor{Purple}{HTML}{911146}
+- \definecolor{Orange}{HTML}{CF4A30}
+- \setbeamercolor{alerted text}{fg=Orange}
+- \setbeamercolor{frametitle}{bg=Purple}
+institute: University of Trieste
+graphics: yes
+fontsize: 10pt
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.align = 'center', warning=FALSE, message=FALSE, fig.asp=0.625, dev='png', global.par = TRUE, dev.args=list(pointsize=10), fig.path = 'figs/')
+library(MASS)
+```
+```{r setup, include=FALSE}
+library(knitr)
+local({
+  hook_plot = knit_hooks$get('plot')
+  knit_hooks$set(plot = function(x, options) {
+    paste0('\n\n----\n\n', hook_plot(x, options))
+  })
+})
+```
+
+
+# Introduction to regression and diagnostic checks
+
+Regression is trying to describe a **dependent variable** $y$ through some statistically significant **predictors** $x$, linking them through a function $f(\cdot)$:
+
+$$y = f(x)+\varepsilon,$$
+where $\varepsilon$ is a measure of *noise* implicit in modelling. 
+Checking the assumptions of a regression model is not just a theoretical matter, but it is something related to *scientific reproducibility*, *scientific transparency* and *visualization power*. Although it is impossible to write down an exaustive list of 'what to do for checking a model', I put here just some initial steps for visualizing and inspecting the sign of your variables,  possible correlations between them and the inclusion of further predictors. The suggested step refer to the **classical linear model**, but they contain principles valid for statistical modelling in general.
+
+**Before fitting a model**
+
+-  Examine the distribution of each of the explanatory variables, and of the dependent variable. <span style="color:red">Skewness, presence of outliers</span>. When the distrubution is skew, consider symmetric transformation.
+
+- Examine the scatterplot involving all the explanatory variables, checking for <span style="color:red">non linearity</span> . If some pairwise plot shows non-linearity, consider some possible transformation.
+
+- Examine the range of the variables.
+
+- Examine the degree of correlation between the explanatory variables.
+
+**After fitting a model**
+
+- Plot residuals against fitted values and check for patterns in the residual (<span style="color:red">homoschedasticity</span>).
+
+- Examine the Cook's distance for possible outliers.
+
+# Regression with a single predictor
+
+The dataset `nihills` of the `DAAG` package contains data from the 2007 calendar for the Northern Ireland Mountain Running Association. The number of observations (races) is $n = 23$, and for each of them we register the following variables: the distances in miles `dist`, the amount of climb expressed in feet `climb`, the record time in hours for males `time` and the record time in hours for females `timef`. 
+
+<span style="color:red">Objective</span>: we want to regress the times through some predictors. Here below there is the data structure (first eight observation).
+
+```{r data, echo =FALSE}
+library(DAAG)
+library(kableExtra)
+
+n <- nrow(nihills)
+
+kable(nihills, "html") %>%
+  kable_styling(bootstrap_options = "striped", full_width = F)
+
+```
+
+
+Suppose we use for this first example only the predictor `dist` for regressing the dependent variable `time`. Let us have a quick look to the data:
+
+```{r plot}
+plot(nihills$dist, nihills$time, pch = 19)
+```
+
+Apart one, all the data times are lower than 2 hours. As an initial attempt, let's fit a simple linear model, plot the fitted values and manually compute the $R^{2}$:
+$$time_i =\beta_0+ \beta_1dist_i+\varepsilon_i, \ \ i=1,\ldots,n, \quad \varepsilon_i\sim N(0,\sigma^2).$$
+```{r fit1}
+nihills.lm.one <- lm(time ~ dist, data = nihills)
+summary(nihills.lm.one)
+```
+```{r fit1plot}
+##plot of the residuals
+par(mfrow=c(2,2))
+plot(nihills.lm.one)
+
+par(mfrow=c(1,1))
+plot(nihills$dist, nihills$time, pch = 19, ylim = c(0,4))
+curve(predict(nihills.lm.one,data.frame(dist=x)),add=TRUE,col="red")
+text(13,3, expression(time == hat(beta)[0]+hat(beta)[1]*dist), col="red")
+
+## add y.hat values to the plot
+points(nihills$dist, fitted(nihills.lm.one), pch = 19, col = "red", cex = 0.8)
+nihills[17,]
+segments(nihills[17,"dist"], nihills[17,"time"],
+         nihills[17,"dist"], fitted(nihills.lm.one)[17], lty = 2)
+```
+```{r}
+regr_ss <- sum((as.vector(nihills.lm.one$fitted.values) - mean(nihills$time))^2)
+regr_ss
+# or
+regr_ss <- sum((fitted(nihills.lm.one) - mean(nihills$time))^2)
+regr_ss
+
+
+tot_ss <- sum((nihills$time-mean(nihills$time))^2)
+R_sq <- regr_ss/tot_ss
+R_sq
+```
+
+
+The value computed here coincides with the value obtained in the ```R``` summary window.
+
+Of course, the fitting seems good enough. However, the  relationship between  ```time``` and ```dist``` from the first plot above seems not to be purely linear...and residual plots seem to suggest a lack of fit for a few points.
+
+
+# Multiple linear regression
+
+## Fit and plot diagnostics
+
+Checking the model fit is of vital importance, and many graphical tools are available to this purpose. 
+
+We may start with some scatterplot matrices, focusing now on male results, the dependent variable ```time``` in the ```nihills``` dataset.
+
+
+```{r diagn, echo =TRUE}
+library(PerformanceAnalytics)
+chart.Correlation(nihills[, c("dist", "climb", "time")])
+```
+
+It seems to exist a linear relationship between the variables ```climb``` and ```dist```, apart from a possible outlier. Now we may fit a first multiple linear model, with the dependent variable ```time```, denoted by $y$, explained by ```dist``` and ```climb```:
+
+$$ time_{i} = \beta_0+\beta_1 dist_i+\beta_2 climb_i+\varepsilon_i,\  \ \ i=1,\ldots,n, \ \ \varepsilon_i\sim \mathcal{N}(0,\sigma^2).$$
+```{r first}
+nihills.lm <- lm(time ~  dist + climb, data = nihills)
+```
+
+We may also produce some **diagnostic plots**
+```{r resid}
+summary(nihills.lm)
+par(mfrow = c(2,2))
+plot(nihills.lm)
+```
+
+From the first plot (top left) and the third plot (bottom left) it emergs clearly that the variability is not constant, while the race ```Seven Sevens```  is an outlier according to the QQ plot (top right) and the bottom right plot. 
+
+Let see the estimates:
+
+```{r summary}
+coef <- summary(nihills.lm)$coef 
+coef
+# or 
+coef(nihills.lm)
+```
+
+According to the summary, all the coeffcients are statistically significant, and the adjusted $R^2$ is 0.9838. The estimated equation is then:
+
+$$ \hat{time}_{i}= `r round(coef(nihills.lm)[1],4)` + `r round(coef(nihills.lm)[2],4)` dist_i+ `r round(coef(nihills.lm)[3],4)` climb_i,$$
+
+For each mile of ```dist```, there is a positive 0.1 effect on the time (6 minutes). 
+
+
+Looking at the residuals plot vs the continuous explanatory variable is a good check to highlight (if any) residual structures in the residuals. 
+
+```{r}
+plot(nihills$dist,resid(nihills.lm.one))
+abline(h=0, lty=2, col="darkgrey")
+```
+
+
+The following model extends the simple linear regression model ```nihills.lm.one``` modelling the explanatory variable ``dist``  as a polynomial of degree two. 
+
+$$time_i =\beta_0+ \beta_1dist_i+\beta_2dist^2_i+\varepsilon_i, \ \ i=1,\ldots,n, \quad \varepsilon_i\sim N(0,\sigma^2).$$
+
+Fit the model in R and comment.
+```{r fit two}
+nihills.lm.two <- lm(time ~ dist+I(dist^2), data = nihills)
+summary(nihills.lm.two)
+
+par(mfrow=c(2,2))
+plot(nihills.lm.two)
+
+par(mfrow=c(1,1))
+plot(nihills$dist, nihills$time)
+curve(predict(nihills.lm.two,data.frame(dist=x)),add=TRUE,col="red")
+text(13,3, expression(time == hat(beta)[0]+hat(beta)[1]*dist+hat(beta)[2]*dist^2), col="red")
+```
+
+## Log transformation
+
+Many times, it may be convenient to consider a suited transformation of the data. However, statistical modelling is not an exact science, and motivations for transforming data may vary among the different datasets and situations. In this case, it is worth to summarize the following issues.
+
+ The range of ```time``` is large, $(min(y), max(y))= (0.32 , 3.9)$ (see the DAAG book for details about range values), and taking a look at the data distribution in ```R``` we may have some clues:
+```{r}
+summary(nihills)
+```
+ 
+
+```{r hist}
+par(mfrow=c(1,2))
+hist(nihills$time, prob = TRUE, breaks = 15)
+hist(nihills$dist, prob = TRUE, breaks = 15)
+```
+
+Remember that a linear model relies on the assumption:
+
+$$ time_i \sim \mathcal{N}(\beta_0+\beta_1dist_i+\beta_2climb_i, \sigma^2), \ \ i=1,\ldots,n$$
+
+According to the histogram above, the distribution has a long right tail, and lot of values are shrunk towards zero. Furthermore, the extreme point on the right tail ---the ```Seven sevens``` race--- influences a lot the estimation of the equation line, it has large *leverage*. Maybe, we need a more symmetric distribution, such as $\log(y_i)$ above. 
+
+
+```{r log lm}
+nihills$logdist <- log(nihills$dist)
+nihills$logclimb <- log(nihills$climb)
+nihills$logtime <- log(nihills$time)
+
+chart.Correlation(nihills[, c("logdist", "logtime", "logclimb")])
+```
+We assume then:
+
+$$ \log(time_i) = \beta_0+\beta_1\log(dist_i)+\beta_2\log(climb_i) + \varepsilon_i, \ \ i=1,\ldots,n $$
+and it is clear that the effects of the explanatory variables on the response variable is not linear, indeed
+$$ time_i = e^{\beta_1}dist_i^{\beta_1}climb_i^{\beta_2} + \varepsilon_i, \ \ i=1,\ldots,n $$
+
+We fit the model with the transformed variables
+```{r}
+nihills.log.lm <- lm(logtime~logdist+logclimb, data =nihills)
+```
+and we print the summary and plot the residuals of the model.
+```{r}
+summary(nihills.log.lm)
+
+par(mfrow=c(2,2))
+plot(nihills.log.lm)
+```
+
+The residuals do not show any kind of particular misfit and from the pairs plot above we notice that the data distributions are now less shrunk towards zero and the outliers likely to be less influential. 
+In terms of $R^{2}$, the log model behaves analogously to the model `nihills.lm`, with $R^2= 0.984$  against `nihills.log.lm` with $R^2=0.985$. Notice that both these multiple linear models---the one with untransformed data and the other with log data transformation---provide a better fit than the simple linear model `nihills.lm.one` with one predictor, whose $R^2$ was 0.93. 
+
+
+
+## AIC
+
+$R^2$ and adjusted $R^2$ represent the easiest way for comparing models, or, at least, for assessing whether a given model fits or not the data. But some other usefuls statistics exist, such as the Akaike Information Criterion (AIC) and some related statistics, which are designed to choose, from among a small number of alternatives, the model with the best predictive power. AIC is defined as:
+
+$$\mbox{AIC}=-2\log L(\beta_0,\beta_1,\beta_2; y)+k*edf,$$
+
+where $\log L(\beta_0,\beta_1,\beta_2; y)$ is the log-likelihood for the multiple linear model, $edf$ is the number of equivalent degrees of freedom for the fitted model and $k$ the weight associated to $edf$. AIC and related statistics may be seen as a sum between two components: the first one refers to a pure **measure of fit**, the second one to the **model complexity**. For an equal (or similar) measure of fit, these statistics will favor the most parimonious models. The ```R``` function ```extractAIC``` computes the generalized AIC criterion, where ```k``` equals 2 yields the AIC statistic, while  ```k``` equals $\log(n)$ yields the BIC criterion.
+
+```{r criterion}
+
+#AIC
+AIC <- rbind(extractAIC(nihills.lm.one)[2],
+             extractAIC(nihills.lm.two)[2], 
+             extractAIC(nihills.lm)[2],
+             extractAIC(nihills.log.lm)[2])
+#BIC
+BIC <- rbind(extractAIC(nihills.lm.one, k = log(n))[2], 
+             extractAIC(nihills.lm.two, k = log(n))[2], 
+             extractAIC(nihills.lm, k = log(n))[2],
+             extractAIC(nihills.log.lm, k = log(n))[2])
+model <- c("nihills.lm.one", "nihills.lm.two","nihills.lm", "nihills.log.lm")
+cbind.data.frame(model,AIC,BIC)
+```
+
+The lower the AIC, and the better is the predictive power of the model. The linear model in log-scale ```nihills.log.lm``` yields the lowest AIC.
+
+## Prediction accuracy
+
+Once we fit a model and we compute some useful statistics for checking the goodness of fit---AIC, BIC, $R^{2}$, t-tests for single coefficients---it is of interest assess how precisely this model **predicts** the same items. One method is to produce coverage intervals for predicted values for the dependent variable $log(time)$.
+
+```{r pred}
+#log model
+coverage_log <- exp(predict(nihills.log.lm, interval ="confidence"))
+exp(predict(nihills.log.lm, interval ="confidence"))[1:5,]
+freq_coverage_log <- mean( nihills$time>=coverage_log[,2] & nihills$time <=coverage_log[,3])
+freq_coverage_log
+```
+
+
+ However, it is worth noting that this assessment of predictive accuracy has some limitations:
+
+- it is crucially dependent on the model assumptions---independence of data points, homogeneity of variance, normality.
+
+- it applies only on the population from which these data have been sampled, and checking the accuracy for new *out-of-sample* races could be appropriate.
+
+## Model selection
+
+Once we propose competing nested models, *analysis of deviance* is required for assessing whether the more complex model better describe data at hand. Let us set up a test for  ```nihills``` races, where the dependent variable is still $\log(time)$, and possible exploratory variables are $\log(dist)$ and $\log(climb)$. Two nested competing models are:
+
+$$
+\begin{cases}
+\mathcal{M}_1: &   \log(y_i)=\beta_o+\beta_1\log(dist_i)+\varepsilon_i, \ \ i=1,\ldots,n\\
+\mathcal{M}_2: & \log(y_i)=\beta_o+\beta_1\log(dist_i)+\beta_2log(climb_i)+\varepsilon_i, \ \ i=1,\ldots,n
+\end{cases}
+$$
+
+We can then set up the following test:
+
+$$
+\begin{cases}
+H_{0}: & \beta_{2}=0\\
+H_{1}: & \beta_2 \ne 0
+\end{cases}
+$$
+
+
+using as a test statistic the following ratio:
+
+$$ F= \frac{  \frac{RSS_1-RSS_2}{p_2-p_1}}{\frac{RSS_2}{n-p_2}},$$
+where $p_{1}$ is the number of parameters in $\mathcal{M}_1$, $p_2$ the number of parameters in $\mathcal{M}_2$, with $p_2>p_1$ (in this case, 3>2). High values for the statistic $F$ suggest to select the complex model in place of the simplest one.
+
+
+```{r anova}
+summary(nihills.lm.one)
+anova(nihills.lm.one)
+anova(nihills.log.lm)
+```
+The table above first computes the $F$ statistic for the null model $\mathcal{M}_0$ with the intercept only and $\mathcal{M}_1$, with a corresponding p-value $< 2.2e-16$ ($\mathcal{M_{1}}$ preferred to $\mathcal{M_{0}}$, and difference of degrees of freedom ```df```=2-1 =1 ); then, the test suggests to accept $\mathcal{M}_2$ in place of $\mathcal{M}_1$, since p-value $\approx$ 0. Here the difference of degrees of freedom ```df``` is always 1, while ```residuals``` is the number of degrees of freedom of the final model $\mathcal{M}_2$, $=n-p_2= 23-3=20$. 
+
+
+## Multicollinearity
+
+A common feature in regression modelling is that some predictors may be lineary related to combinations of one or more of the other explanatory variables, i.e. $x_{1}=a+bx_2$. In some sense, we would avoid this behaviour, and we should break up the multicollinearity existing in our predictors.
+
+The variance inflation factor (**VIF**) measures the effect of correlation with other variables in increasing the standard error of a regression coefficient. Let suppose to have the following linear model:
+
+$$y_{i}= \beta_0+\beta_1x_{i1}+\beta_2x_{i2}+\beta_{3}x_{i3}+\varepsilon_{i}, \ \ i=1,\ldots, n.$$
+
+One may prove that the estimated variance of the estimate of $\hat{\beta_{j}}, \ j=1,\ldots,3$, can be expressed as:
+
+$$ \widehat{Var}({\hat{\beta}_{j}})=\frac{\hat{\sigma}^{2}}{(n-1)\widehat{Var}(x_j)}*\frac{1}{1-R^{2}_{j}},$$
+
+where $R^{2}_{j}$ is the multiple $R^{2}$ for the regression of $x_{j}$ on the other covariates (**a regression that does not involve the response variable Y**), and $\frac{1}{1-R^{2}_{j}}$ is the VIF. As reported by Wikipedia:
+
+*It reflects all other factors that influence the uncertainty in the coefficient estimates. The VIF equals 1 when the vector $x_j$ is orthogonal to each column of the design matrix for the regression of $x_j$ on the other covariates. By contrast, the VIF is greater than 1 when the vector $x_j$ is not orthogonal to all columns of the design matrix for the regression of $x_j$ on the other covariates. Finally, note that the VIF is invariant to the scaling of the variables (that is, we could scale each variable $x_j$ by a constant $c_j$ without changing the VIF).*
+
+
+A rule of thumb is that if $VIF(\hat{\beta}_{j})>10$, then multicollinearity is high.
+
+```{r vif}
+vif(nihills.log.lm)
+
+```
+
+In this case there is no suggestion of multicollinearity between ```log(dist) ``` and ```log(climb)```.
+
+Let us set up the following naive exercise, including the further predictor:
+
+$$\log(sum)= 4+3*\log(dist)-2*climb$$
+
+Let's fit the model, and then check for the VIFs.
+
+```{r vif sum}
+nihills$logLC <- 4 + 3*log(nihills$dist)-2*nihills$climb 
+
+nihills.log.lm.sum <- lm(logtime ~ logdist + logclimb + logLC,
+  data=nihills)
+
+summary(nihills.log.lm.sum)
+vif(nihills.log.lm.sum)
+```
+
+The new predictor, which is a linear combination between $log(dist)$ and $climb$, approximates the treshold value 10. 
+
+As an illustration purpose, let's now transform the variables and consider:
+
+$$
+\begin{cases}
+x_s = & \log(climb)+\log(dist), \\
+x_d  = & \log(climb)-\log(dist),
+\end{cases}
+$$
+
+
+and fit the model
+
+$$log(y_i)= \beta_0+ \beta_1 x_{is}+\beta_2 x_{id}+\varepsilon_i, \ \ i=1,\ldots,n.$$
+
+```{r vif ind}
+nihills$logsum <- log(nihills$dist)+log(nihills$climb)
+nihills$logdiff <- log(nihills$dist)-log(nihills$climb)
+nihills.log.lm.ind <- lm(logtime  ~ logsum + logdiff, data=nihills)
+vif(nihills.log.lm.ind)
+```
+No correlation here, orthogonal coefficients!
+
+## Ridge regression and Lasso
+
+Ridge regression is a *penalized likelihood framework* which results to be useful for alleviating the effects of multicollinearity. We remind that it corresponds to introducing the following penalty $$\lambda\sum_{j=1}^p \beta_j^2=\lambda\boldsymbol{\beta}^T\boldsymbol{\beta}$$ 
+
+in estimating the coefficient vector $\boldsymbol{\beta}$.
+With large $\lambda$ the penalty term dominates and all (or almost all) coefficients are shrunk toward 0. $\lambda$ is usually chosen by $k$-fold cross validation.  
+
+
+It is possible to implement Ridge regression in R with the function ```lm.ridge()``` in ```MASS``` package.
+
+
+```{r ridge}
+library(MASS)
+
+#lambda =0 
+
+nihills.ridge <- lm.ridge( logtime~logdist+logclimb, 
+  data=nihills, lambda =0 )
+nihills.ridge
+
+#select lambda in terms of GCV error
+
+select(lm.ridge(logtime~logdist+logclimb+logLC, data=nihills,
+              lambda = seq(0,10,0.001)))
+
+nihills.ridge.sel <- lm.ridge( logtime~logdist+logclimb+logLC, 
+  data=nihills, lambda = 0.371)
+nihills.ridge.sel
+coef(nihills.log.lm.sum)
+
+```
+
+
+LASSO is another regularization technique involving the penalization:
+
+$$\lambda \sum_{j=1}^p |\beta_j|.$$
+
+We may implement LASSO regression through the ```lasso2``` package, via function ```l1ce```:
+
+```{r lasso}
+library(lasso2)
+nihills.lasso <- l1ce(logtime~logdist+logclimb+logLC, data=nihills)
+summary(nihills.lasso)$coefficients
+coef(nihills.log.lm.sum)
+```
+
+
+# Generalized Linear Models
+
+Many times, linearity between a dependent variable and a set of predictors is not a suited assumption. Normal linear models rely on a *normality assumption*, and this may be a limitation when
+the nature of the dependent variable is discrete and its range spans from 0 to $+\infty$. In normal linear models, the main assumption is:
+
+$$ E[y_i]=\beta_0+\sum_{j=1}^{p}\beta_jx_{ij}.$$
+
+Extending the linear framework allows for the following transformation involving a twice differentiable **link function** g such that:
+ 
+ $$g(E[y_i])=\beta_0+\sum_{j=1}^{p}\beta_jx_{ij}.$$
+
+## Poisson regression
+ 
+Suppose we collect some *counts*, $\boldsymbol{y}=(y_1,\ldots,y_n)$, say the daily average lengths of the phone calls for $n$ adults. For each adult, we register their age, their familiar status and their monthly earnings. We would like to predict the phone length in minutes. $x_1$ is the age predictor, $x_2$ the familiar status ($x_2=1$ if married/engaged, $x_2=0$ otherwise) and $x_3$ the monthly earning expressed in Euro/1000. The model we want to build is now:
+ 
+ $$y_i \sim \mathsf{Poiss}(\lambda),$$
+ 
+ with 
+ 
+ $$g(\lambda)=g(E[y_i])=\beta_0+\beta_1x_{i1}+\beta_2x_{i2}+\beta_{3}x_{i3}+\varepsilon_{i}$$
+ The usual choice in Poisson regression is to take $g(\cdot)=\log(\cdot)$. GLM are easily programmed in ```R``` with the function ```glm(formula, family)```. 
+ 
+```{r poiss} 
+y <- c(4, 27, 2, 21, 8, 3, 3, 0, 4, 4, 5, 2, 2, 5, 7, 1, 5, 0, 15, 36)
+age <- c(54 ,26,41,23, 41, 75, 28, 78, 44, 52, 50, 28, 42, 50, 31, 59, 33, 35, 26, 22)
+family <- c(1,1,0,1,1,0,1,0,0,1,1,1,0,1,0,0,1,1,1,1)
+earning <- c( 1.2, 5.3, 2.4, 6.3, 4.2, 1.5, 1.1, 0.9, 1.2, 1.1, 1.3, 1.5, 4.2, 1.3, 1.2, 1.3, 1.9, 2.7, 7.3, 5)
+n <- length(y)
+calls.glm <- glm(y ~ age+family+earning, family = poisson)
+summary(calls.glm)
+par(mfrow=c(1,2))
+plot(calls.glm, which=c(1,3))
+```
+
+Poisson models have a main drawback: the mean and the variance both equal $\lambda$. However, in many cases this is a major restriction, since data show a non negligible extent of **overdispersion**: data exhibit a greater variance than that assumed by the model. The idea is then to specify a *quasi Poisson* model, with:
+
+$$\begin{cases}
+E[y_i]=&\lambda\\
+var(y_i)= &\phi E[y_i]
+\end{cases}$$
+
+where $\phi$ is the **overdispersion parameter**.
+
+```{r quasi poiss} 
+calls.quasi.glm <- glm(y ~ age+family+earning, family = quasipoisson)
+summary(calls.quasi.glm)
+par(mfrow=c(1,2))
+plot(calls.quasi.glm, which=c(1,3))
+```
